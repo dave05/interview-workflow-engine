@@ -73,6 +73,43 @@ Each activity: 60s timeout, 2 max attempts, 1s initial backoff.
 5. test           → write test with fixture
 ```
 
+## Every Activity Has the Same Signature
+
+```python
+@activity.defn
+async def execute_*_node(
+    data: *NodeData,                    # node-specific config
+    variables: dict[str, VariableValue], # full variable state
+    edges: list[WorkflowEdge],          # graph edges for traversal
+    node_id: str,                       # current node's id
+) -> NodeResult:                        # {next_node_id, variables}
+```
+
+Exception: `execute_web_node` takes `actions: list[Action]` instead of a data object.
+
+## Variable Flow Through the Workflow
+
+```
+Start:     {invoicehubUrl, username, password}
+login:     unchanged
+scrape-list:    + invoiceNumbers[], invoiceAmounts[], daysOverdues[]
+scrape-detail:  + invoiceAmount, daysOverdue, customerName, contactEmail
+check-critical: + notified="yes"|"no"
+send-email:     unchanged
+output-csv:     + output="Invoice Number,Amount,Days Overdue\n..."
+```
+
+## Session API (`util/session.py`)
+
+```python
+Session.navigate(url)     # httpx GET → lxml parse
+Session.scrape(xpath)     # first match → text_content(), empty string if no match
+Session.scrape_all(xpath) # all matches → list[str]
+Session.click(xpath)      # <a> → follow href; <button> in <form> → follow form action; else raise
+```
+
+Scrape returns empty string on no match (silent failure). Click raises on no match.
+
 ## Running
 
 ```bash
@@ -92,3 +129,11 @@ pytest                                        # run tests
 - **Temporal UI**: http://localhost:8080
 - **InvoiceHub**: http://localhost:3000 (Express.js mock billing app, 12 invoices, admin/admin123)
 - **Task Queue**: `"workflow-engine-py"`
+
+## Testing Patterns (`test_activities.py`)
+
+- Uses embedded `http.server` with `FIXTURE_HTML` (3-row invoice table)
+- `base_url` fixture provides the test server URL
+- Activities are tested directly (not through Temporal) — just call the async function
+- `caplog` captures `activity.logger.info` output for assertion
+- Edge cases: missing variables resolve to empty, no outgoing edge returns None
